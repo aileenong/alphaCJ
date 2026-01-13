@@ -1,5 +1,8 @@
 streamlit
+streamlit-option-menu
+qrcode
 pandas
 plotly
-pymupdf
-numpy
+PyMuPDF
+opencv-python
+pyzbar
