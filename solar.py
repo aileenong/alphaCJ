@@ -1,9 +1,19 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 import sqlite3
+import qrcode
 import pandas as pd
 import plotly.express as px
 import fitz  # PyMuPDF for PDF generation
 import os
+import io
+import base64
+import cv2
+from pyzbar.pyzbar import decode
+import datetime
+from datetime import datetime
+from datetime import date
+
 
 # ---------------- SESSION STATE INIT ----------------
 if 'logged_in' not in st.session_state:
@@ -45,7 +55,7 @@ def create_tables():
     """)
     conn.execute("""
     CREATE TABLE IF NOT EXISTS customers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        idINTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         phone TEXT,
         email TEXT,
@@ -77,6 +87,7 @@ def create_tables():
         FOREIGN KEY(item_id) REFERENCES items(id)
     )
     """)
+
     conn.commit()
     conn.close()
 
@@ -125,6 +136,19 @@ def view_audit_log(start_date=None, end_date=None):
     conn.close()
     return df
 
+# ---------------- Delete Customer --------------
+def delete_customer(customer_name: str):
+    """Delete a customer by name from the database."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM customers WHERE name = ?", (customer_name,))
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error deleting customer: {e}")
+    finally:
+        conn.close()
+
 # ---------------- Record Installations ---------------
 def record_installation(item_id, quantity, installed_by, customer_id, installed_date):
     try:
@@ -163,7 +187,32 @@ def record_installation(item_id, quantity, installed_by, customer_id, installed_
         return f"Installation recorded: Item {item_id}, Quantity {quantity}, for Customer {customer_id} on {installed_date} by {installed_by}."
     except Exception as e:
         return f"Error recording installation: {e}"
-    
+
+# --------------- Delete All Inventory -----------------
+def delete_all_inventory():
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM items")
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error deleting inventory: {e}")
+    finally:
+        conn.close()
+
+# --------------- Delete All Customers -----------------
+def delete_all_customers():
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM customers")
+        cursor.execute("DELETE FROM installations")
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error deleting customers: {e}")
+    finally:
+        conn.close()
+
 # --------------- View Installations -----------------
 def view_installations():
     conn = get_connection()
@@ -302,6 +351,22 @@ def import_items_and_add_or_insert():
     conn.commit()
     conn.close()
     print("Items updated or inserted successfully.")
+
+# ---------------- Delete Customer Installation -----------------
+def delete_customer_installation(installation_id):
+    """Delete a specific installation by its unique ID."""
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM installations WHERE id = ?", (installation_id,))
+        conn.commit()
+        return f"Installation ID {installation_id} deleted successfully."
+    except Exception as e:
+        return f"Error deleting installation: {e}"
+    finally:
+        conn.close()
+
 
 
 # ---------------- PDF Generation for SOA ----------------
@@ -447,15 +512,45 @@ elif st.session_state.logged_in:
     st.sidebar.button("Logout", on_click=logout)
     st.sidebar.header("Settings")
     stock_threshold = st.sidebar.number_input("Set Stock Alert Threshold", min_value=0, value=5)
-    menu = st.sidebar.selectbox(
-        "Select Option",
-        ["Home", "Add/Update Stock", "File Upload (Stocks)", "View Inventory", "Delete Item", "Add Customer", "View Customers", "Record Installations", "Profit/Loss Report", "View Audit Log", "Customer Statement of Account"],
-        index=["Home", "Add/Update Stock", "File Upload (Stocks)", "View Inventory", "Delete Item", "Add Customer", "View Customers", "Record Installations", "Profit/Loss Report", "View Audit Log", "Customer Statement of Account"].index(st.session_state.menu)
-    )
-    st.session_state.menu = menu
 
-    #if os.path.exists("icon.jpeg"):
-    #    st.image("icon.jpeg", width=150)
+    with st.sidebar:
+        # Main menu
+        main_menu = option_menu(
+            "Main Menu",
+            ["Home", "Inventory", "Customer", "Reports"],
+            icons=["house", "box", "people", "bar-chart"],
+            menu_icon="cast",
+            default_index=0
+        )
+
+        # Submenu depending on main menu
+        if main_menu == "Home":
+            menu = option_menu("Home", ["Home"], icons=["house"])
+        elif main_menu == "Inventory":
+            menu = option_menu("Inventory", [
+                "View Inventory",
+                "Add/Update Stock",
+                "File Upload (Stocks)",
+                "Delete Item",
+                "Delete All Inventory"
+            ], icons=["plus-circle", "upload", "list", "trash", "trash"])
+        elif main_menu == "Customer":
+            menu = option_menu("Customer", [
+                "View Customers",
+                "View Installations for a Customer",
+                "Add Customer",
+                "Record Installations",
+                "Customer Statement of Account",
+                "Delete All Customers"
+            ], icons=["person-plus", "people", "gear", "clipboard", "file-text", "trash"])
+        elif main_menu == "Reports":
+            menu = option_menu("Reports", [
+                "Profit/Loss Report",
+                "View Audit Log"
+            ], icons=["graph-up", "book"])
+
+    st.session_state.menu = menu
+    st.write(f"Selected: {main_menu} → {menu}")
 
 ## Aileen Added
 
@@ -592,10 +687,17 @@ elif st.session_state.logged_in:
         if data.empty:
             st.warning("No items found.")
         else:
+             # --- Category filter ---
+            categories = data['category'].unique().tolist()
+            selected_category = st.selectbox("Filter by Category", ["All"] + categories)
+
+            if selected_category != "All":
+                data = data[data['category'] == selected_category]
+
             def highlight_low_stock(row):
                 return ['background-color: #CC0000' if row['quantity'] < stock_threshold else '' for _ in row]
-            paged_df, total_pages = paginate_dataframe(data, page_size=20)
-            st.write(f"Showing {len(paged_df)} rows (Page size: 20)")
+            paged_df, total_pages = paginate_dataframe(data, page_size=100)
+            st.write(f"Showing {len(paged_df)} rows (Page size: 100)")
             # st.dataframe(paged_df.style.apply(highlight_low_stock, axis=1), width='stretch')
             st.dataframe(
                 paged_df.style
@@ -650,7 +752,13 @@ elif st.session_state.logged_in:
         address = st.text_area("Address")
         if st.button("Save Customer"):
             conn = get_connection()
-            conn.execute('INSERT INTO customers (name, phone, email, address) VALUES (?, ?, ?, ?)',
+            conn.execute('SELECT * FROM customers WHERE name=?', (name,))  # Check for existing customer
+            existing = conn.fetchone()
+            if existing:    
+                st.error(f"Customer '{name}' already exists.")
+                conn.close()
+            else:
+                conn.execute('INSERT INTO customers (name, phone, email, address) VALUES (?, ?, ?, ?)',
                          (name, phone, email, address))
             conn.commit()
             conn.close()
@@ -664,9 +772,68 @@ elif st.session_state.logged_in:
             st.warning("No customers found.")
         else:
             paged_customers, total_pages = paginate_dataframe(data, page_size=20)
-            st.write(f"Showing {len(paged_customers)} rows (Page size: 20)")
+            st.write(f"Showing {len(paged_customers)} rows (Page size: 100)")
             st.dataframe(paged_customers)
 
+            # --- Delete customer option ---
+            st.subheader("Delete a Customer")
+            customer_names = data['name'].tolist()  # adjust column name if different
+            selected_customer = st.selectbox("Select Customer to Delete", customer_names)
+
+            if st.button("Delete Customer"):
+                delete_customer(selected_customer)  # <-- implement this function in your backend
+                st.success(f"Customer '{selected_customer}' has been deleted.")
+                st.session_state["refresh_customers"] = True
+
+            if st.session_state.get("refresh_customers", False):
+                data = view_customers()
+                st.session_state["refresh_customers"] = False
+
+    # --- when selecting customer, show installations ---
+    elif menu == "View Installations for a Customer":
+        st.subheader("View Installations for a Customer")
+        data = view_customers()
+        customer_names = data['name'].tolist() 
+        selected_customer_view = st.selectbox("Select Customer to View Installations", customer_names, key="view_install_customer")
+        customer_row = data[data['name'] == selected_customer_view].iloc[0] 
+        customer_id = customer_row['id']
+        installations_df = view_installations()
+        if not installations_df.empty:  
+            customer_installs = installations_df[installations_df['customer_id'] == customer_id]
+            if not customer_installs.empty:
+                st.dataframe(customer_installs)
+                csv_installs = customer_installs.to_csv(index=False)
+                st.download_button(
+                    "Download Customer Installations CSV",
+                    data=csv_installs,
+                    file_name=f"customer_{customer_id}_installations.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("No installations recorded yet for this customer.") 
+            
+        # --- Delete customer option ---
+        st.subheader("Delete an Installation for a Customer")
+        customer_installs_df = installations_df[installations_df['customer_id'] == customer_id]
+
+        if not customer_installs_df.empty:
+            # Build descriptive labels for each installation
+            install_labels = customer_installs_df.apply(
+                lambda row: f"{row['id']} - {row['item_name']} ({row['quantity']} units on {row['date']})",
+                axis=1
+            ).tolist()
+
+            selected_label = st.selectbox("Select Installation to Delete", install_labels)
+            install_id = int(selected_label.split(" - ")[0])  # Extract the ID
+
+            if st.button("Delete Installation"):
+                result = delete_customer_installation(install_id)
+                st.success(result)
+                st.session_state["refresh_customers"] = True
+        else:
+            st.info("No installations recorded yet for this customer.")
+
+    # ---------------- RECORD INSTALLATIONS ----------------
     ## Add new list
     elif menu == "Record Installations":
         st.title("Record Installations")
@@ -803,9 +970,15 @@ elif st.session_state.logged_in:
                     pdf_file = generate_soa_pdf(customer_name, customer_id, start_date, end_date, sales_customer)
                     with open(pdf_file, "rb") as f:
                         st.download_button("Download SOA PDF", data=f, file_name=pdf_file, mime="applic-ation/pdf")
-    
-    
-    
-    
-    
 
+    # ---------------- DELETE ALL CUSTOMERS ----------------
+    elif menu == "Delete All Customers":    
+        st.title("Delete All Customers")
+        st.warning("This action will delete ALL customers permanently.")
+        confirm = st.text_input("Type 'DELETE' to confirm")
+        if st.button("Delete All Customers"):
+            if confirm == "DELETE":
+                delete_all_customers()
+                st.success("All customers have been deleted.")
+            else:
+                st.error("Confirmation text does not match. Customers not deleted.")
