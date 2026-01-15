@@ -156,7 +156,6 @@ def record_installation(item_id, quantity, installed_by, customer_id, installed_
         cursor = conn.cursor()
 
         # Check current stocks on hand
-        # Check current stocks on hand
         cursor.execute("SELECT quantity FROM items WHERE id = ?", (item_id,))
         result = cursor.fetchone()
         if not result:
@@ -746,14 +745,16 @@ elif st.session_state.logged_in:
     # ---------------- ADD CUSTOMER ----------------
     elif menu == "Add Customer":
         st.title("Add New Customer")
-        name = st.text_input("Customer Name")
+        # change to uppercase all input
+        name = st.text_input("Customer Name").upper()
         phone = st.text_input("Phone")
-        email = st.text_input("Email")
-        address = st.text_area("Address")
+        email = st.text_input("Email").upper()
+        address = st.text_area("Address").upper()
+
         if st.button("Save Customer"):
             conn = get_connection()
             cursor = conn.cursor()   # create cursor
-            conn.execute('SELECT * FROM customers WHERE name=?', (name,))  # Check for existing customer
+            conn.execute('SELECT * FROM customers WHERE name=?', (name))  # Check for existing customer
             existing = conn.fetchone()
             if existing:    
                 st.error(f"Customer '{name}' already exists.")
@@ -983,4 +984,3 @@ elif st.session_state.logged_in:
                 st.success("All customers have been deleted.")
             else:
                 st.error("Confirmation text does not match. Customers not deleted.")
-
