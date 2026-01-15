@@ -754,7 +754,7 @@ elif st.session_state.logged_in:
         if st.button("Save Customer"):
             conn = get_connection()
             cursor = conn.cursor()   # create cursor
-            conn.execute('SELECT * FROM customers WHERE name=?', (name))  # Check for existing customer
+            conn.execute('SELECT * FROM customers WHERE name=?', (name,))  # Check for existing customer
             existing = conn.fetchone()
             if existing:    
                 st.error(f"Customer '{name}' already exists.")
@@ -984,3 +984,4 @@ elif st.session_state.logged_in:
                 st.success("All customers have been deleted.")
             else:
                 st.error("Confirmation text does not match. Customers not deleted.")
+
