@@ -73,6 +73,47 @@ def view_installations() -> pd.DataFrame:
         df = df[cols]
     return df
 
+def view_installations() -> pd.DataFrame:
+    """
+    Supabase version of view_installations.
+    Mirrors the SQLite join:
+    SELECT i.id, i.customer_id, c.name AS customer_name,
+           i.item_id, it.item AS item_name,
+           i.quantity, i.installed_by, i.date
+    FROM installations i
+    JOIN customers c ON i.customer_id = c.id
+    JOIN items it ON i.item_id = it.id
+    ORDER BY i.date DESC
+    """
+    sb = get_supabase()
+
+    # Supabase join syntax: use foreign table relationships
+    res = (
+        sb.table("installations")
+        .select(
+            "id, customer_id, customers(name), item_id, items(item), quantity, installed_by, date"
+        )
+        .order("date", desc=True)
+        .execute()
+    )
+
+    # Flatten nested results
+    rows = []
+    for r in res.data or []:
+        rows.append({
+            "id": r.get("id"),
+            "customer_id": r.get("customer_id"),
+            "customer_name": r.get("customers", {}).get("name"),
+            "item_id": r.get("item_id"),
+            "item_name": r.get("items", {}).get("item"),
+            "quantity": r.get("quantity"),
+            "installed_by": r.get("installed_by"),
+            "date": r.get("date"),
+        })
+
+    df = pd.DataFrame(rows)
+    return df
+
 def view_audit_log(start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
     sb = get_supabase()
     q = sb.table("audit_log").select("*")
