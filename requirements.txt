@@ -6,3 +6,4 @@ pymupdf
 opencv-python
 pyzbar
 streamlit-option-menu
+openpyxl
